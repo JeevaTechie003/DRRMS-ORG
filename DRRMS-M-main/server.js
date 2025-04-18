@@ -131,7 +131,7 @@ app.post('/volunteers/assign-task', async (req, res) => {
 
     // 1. Update request status
     await db.query(
-      'UPDATE requests SET status = "approved" WHERE id = ? AND status = "pending"',
+      'UPDATE requests SET status = "assigned" WHERE id = ? AND status = "pending"',
       [request_id]
     );
 
@@ -160,25 +160,14 @@ app.post('/volunteers/assign-task', async (req, res) => {
 });
 
 // Update Volunteer Task
-app.post('/volunteers/update-task', async (req, res) => {
-  const { request_id, new_status, volunteer_id } = req.body;
-
+app.post('/volunteers/complete-task', async (req, res) => {
+  const request_id  = req.body.task_id;
   try {
-    const validStatus = ['fulfilled', 'denied'];
-    if (!validStatus.includes(new_status)) {
-      return res.status(400).json({ error: 'Invalid status' });
-    }
-
-    await db.query('UPDATE requests SET status = ? WHERE id = ?', [new_status, request_id]);
-
-    await db.query('INSERT INTO audit_log (action, performed_by) VALUES (?, ?)', [
-      `Volunteer ${volunteer_id} updated request ${request_id} to ${new_status}`,
-      volunteer_id
-    ]);
-
-    res.json({ success: true, message: 'Request status updated' });
+    await db.query('UPDATE requests SET status ="completed" WHERE id = ?',[request_id]);
+    res.json({ success: true, message: 'Request status updated',ok:true });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to update request' });
+    console.log(err);
+    res.status(500).json(err);
   }
 });
 
@@ -197,27 +186,26 @@ app.get('/admin/requests', async (req, res) => {
   try {
     const [requests] = await db.query(`
       SELECT 
-        r.id AS request_id, 
-        u.username AS citizen, 
-        l.name AS location, 
-        res.name AS resource, 
-        r.quantity_requested, 
-        r.status, 
-        r.remarks,
-        (SELECT v.username FROM users v 
-         JOIN audit_log a ON a.performed_by = v.id 
-         WHERE a.action LIKE CONCAT('%', r.id) 
-         ORDER BY a.timestamp DESC LIMIT 1) AS volunteer
-      FROM requests r
-      JOIN users u ON r.user_id = u.id
-      JOIN resources res ON r.resource_id = res.id
-      JOIN locations l ON r.location_id = l.id
+    r.id AS request_id, 
+    u.username AS citizen, 
+    l.name AS location, 
+    res.name AS resource, 
+    r.quantity_requested, 
+    r.status, 
+    r.remarks,
+    vu.username AS volunteer
+FROM requests r
+JOIN users u ON r.user_id = u.id
+JOIN resources res ON r.resource_id = res.id
+JOIN locations l ON r.location_id = l.id
+LEFT JOIN volunteer_requests vr ON vr.request_id = r.id
+LEFT JOIN users vu ON vu.id = vr.volunteer_id;
     `);
 
     res.json(requests);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to fetch admin requests' });
+    res.status(500).json(err);
   }
 });
 
@@ -243,8 +231,6 @@ app.get('/my-requests', async (req, res) => {
   }
 });
 
-
-
 // Get Alerts
 app.get('/alerts', async (req, res) => {
   try {
@@ -257,7 +243,6 @@ app.get('/alerts', async (req, res) => {
 });
 
 // Profile Routes
-
 // Get Profile
 app.get('/profile/:id', async (req, res) => {
   const userId = req.params.id;
@@ -297,26 +282,13 @@ app.put('/profile/:id', async (req, res) => {
 });
 
 
-app.post('/requests', async (req, res) => {
-  const { user_id, resource_name, location_name, quantity_requested, remarks } = req.body;
-
-  if (!user_id || !resource_name || !location_name || !quantity_requested) {
-    return res.status(400).json({ error: 'All fields are required.' });
-  }
-
+app.post('/user/requests', async (req, res) => {
+  const { user_id, resource_id, location_id, quantity_requested, remarks } = req.body;
+  console.log(req.body);
   try {
-    // Fetch resource_id
-    const [resourceRows] = await pool.query('SELECT id FROM resources WHERE name = ?', [resource_name]);
-    if (resourceRows.length === 0) return res.status(400).json({ error: 'Resource not found.' });
-    const resource_id = resourceRows[0].id;
-
-    // Fetch location_id
-    const [locationRows] = await pool.query('SELECT id FROM locations WHERE name = ?', [location_name]);
-    if (locationRows.length === 0) return res.status(400).json({ error: 'Location not found.' });
-    const location_id = locationRows[0].id;
 
     // Now insert into requests
-    await pool.query(
+    await db.query(
       'INSERT INTO requests (user_id, resource_id, quantity_requested, location_id, status, remarks) VALUES (?, ?, ?, ?, ?, ?)',
       [user_id, resource_id, quantity_requested, location_id, 'pending', remarks]
     );
@@ -391,7 +363,7 @@ app.get('/shelters', async (req, res) => {
   }
 });
 
-app.get('/volunteers/tasks', async (req, res) => {
+app.get('/volunteers/my-tasks', async (req, res) => {
   const  volunteer_id  = req.query.volunteer_id;
 
   try {
@@ -414,6 +386,23 @@ app.get('/volunteers/tasks', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch tasks' });
   }
 });
+app.get('/volunteers/all-requests', async (req, res) => {
+  try {
+    const [requests] = await db.query(
+      `SELECT r.id AS request_id, u.username AS citizen, l.name AS location,
+       res.name AS resource, r.quantity_requested, r.status, r.remarks, r.request_time
+       FROM requests r
+       JOIN users u ON r.user_id = u.id
+       JOIN resources res ON r.resource_id = res.id
+       JOIN locations l ON r.location_id = l.id
+       WHERE r.status = 'pending'`
+    );
+    res.json(requests);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch all requests' });
+  }
+});
+
 app.post('/volunteers/complete-task', async (req, res) => {
   const { request_id, volunteer_id } = req.body;
 
@@ -464,6 +453,20 @@ app.get('/weather-alerts', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch weather alerts' });
   }
 });
+
+app.put('/requests',async (req,res)=> {
+  try{
+    const request_id=req.body.Id;
+    const stat=req.body.status;
+    await db.query(`delete from volunteer_requests where request_id=${request_id}` );
+    await db.query(`update requests set status='${stat}' where id=${request_id}`);
+    res.json({success: true });
+  }
+  catch(err){
+    res.status(500).json(err);
+    console.log(err)
+  }
+})
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

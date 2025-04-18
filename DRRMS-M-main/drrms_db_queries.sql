@@ -52,7 +52,7 @@ CREATE TABLE requests (
     resource_id INT,
     location_id INT,
     quantity_requested INT,
-    status ENUM('pending', 'approved', 'denied', 'fulfilled') DEFAULT 'pending',
+    status ENUM('pending', 'assigned', 'completed', 'fulfilled') DEFAULT 'pending',
     request_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     remarks TEXT,
     FOREIGN KEY (user_id) REFERENCES users(id),
@@ -98,13 +98,14 @@ VALUES
   ('agency_tn', 'agencypass', 'agency', 'agency@example.com', '9000000002', false),
   ('volunteer_raj', 'volpass', 'volunteer', 'raj@example.com', '9000000003', false),
   ('deepa_citizen', 'deeppass', 'citizen', 'deepa@example.com', '9000000004', true),
-  ('kumar_citizen', 'kumarpass', 'citizen', 'kumar@example.com', '9000000005', false);
+  ('kumar_citizen', 'kumarpass', 'citizen', 'kumar@example.com', '9000000005', false),
+  ('vijay','vijaypass','volunteer','vijay@example.com','7871648764',false);
   
   INSERT INTO requests (user_id, resource_id, location_id, quantity_requested, status, remarks)
 VALUES
   (4, 1, 1, 50, 'pending', 'Need rice for 5 families'),
-  (5, 2, 1, 100, 'approved', 'Water shortage in area'),
-  (2, 3, 2, 20, 'fulfilled', 'Medical help for cyclone relief');
+  (5, 2, 1, 100, 'pending', 'Water shortage in area'),
+  (2, 3, 2, 20, 'pending', 'Medical help for cyclone relief');
   
   INSERT INTO audit_log (action, performed_by)
 VALUES
@@ -158,8 +159,7 @@ CREATE TABLE volunteer_requests (
     assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMP NULL,
     FOREIGN KEY (volunteer_id) REFERENCES users(id),
-    FOREIGN KEY (request_id) REFERENCES requests(id),
-    UNIQUE KEY ( request_id)
+    FOREIGN KEY (request_id) REFERENCES requests(id)
 );
 
 DELIMITER $$
@@ -195,9 +195,24 @@ select * from users;
 
 
 
-INSERT INTO volunteer_requests (volunteer_id, request_id, status)
-VALUES
-  (3, 1, 'assigned'),
-  (3, 2, 'in_progress'),
-  (3, 3, 'completed');
+
+
+SELECT DISTINCT 
+    r.id AS request_id, 
+    u.username AS citizen, 
+    l.name AS location, 
+    res.name AS resource, 
+    r.quantity_requested, 
+    r.status, 
+    r.remarks,
+    vu.username AS volunteer
+FROM requests r
+JOIN users u ON r.user_id = u.id
+JOIN resources res ON r.resource_id = res.id
+JOIN locations l ON r.location_id = l.id
+LEFT JOIN volunteer_requests vr ON vr.request_id = r.id
+LEFT JOIN users vu ON vu.id = vr.volunteer_id;
+
+SELECT * FROM requests;
+
 

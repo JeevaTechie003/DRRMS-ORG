@@ -2,108 +2,112 @@ import React, { useEffect, useState } from 'react';
 import '../styles/VolunteerDashboard.css';
 
 const VolunteerDashboard = () => {
-  const [requests, setRequests] = useState([]);
+  const [allRequests, setAllRequests] = useState([]);
+  const [myTasks, setMyTasks] = useState([]);
   const [resources, setResources] = useState([]);
-  const [assignedTasks, setAssignedTasks] = useState([]);
   const [searchLocation, setSearchLocation] = useState('');
   const [searchResource, setSearchResource] = useState('');
   const [selectedType, setSelectedType] = useState('');
   const [activeTab, setActiveTab] = useState('allRequests');
   const [weatherAlerts, setWeatherAlerts] = useState([]);
-  const volunteerId = 3; // Assuming volunteer_raj is logged in
+  const [isLoading, setIsLoading] = useState(false);
+  const volunteerId = 3; // Example volunteer ID
 
   const fetchData = async () => {
+    setIsLoading(true);
     try {
-      const [requestsRes, resourcesRes, tasksRes, weatherRes] = await Promise.all([
-        fetch('http://localhost:4000/volunteers/requests'),
+      // Fetch data based on active tab
+      const endpoints = {
+        allRequests: 'http://localhost:4000/volunteers/all-requests',
+        myTasks: `http://localhost:4000/volunteers/my-tasks?volunteer_id=${volunteerId}`
+      };
+
+      const [activeDataRes, resourcesRes, weatherRes] = await Promise.all([
+        fetch(endpoints[activeTab]),
         fetch('http://localhost:4000/volunteers/resources'),
-        fetch(`http://localhost:4000/volunteers/tasks?volunteer_id=${volunteerId}`),
-        fetch('http://localhost:4000/weather-alerts'),
+        fetch('http://localhost:4000/weather-alerts')
       ]);
 
-      const [requestsData, resourcesData, tasksData, weatherData] = await Promise.all([
-        requestsRes.json(),
+      const [activeData, resourcesData, weatherData] = await Promise.all([
+        activeDataRes.json(),
         resourcesRes.json(),
-        tasksRes.json(),
-        weatherRes.json(),
+        weatherRes.json()
       ]);
 
-      setRequests(requestsData);
+      if (activeTab === 'allRequests') {
+        setAllRequests(activeData);
+      } else {
+        setMyTasks(activeData);
+      }
+
       setResources(resourcesData);
-      setAssignedTasks(tasksData);
       setWeatherAlerts(weatherData);
     } catch (error) {
       console.error('Error fetching data:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [activeTab]); // Refetch when tab changes
 
   const handleAssign = async (requestId) => {
     try {
-      await fetch('http://localhost:4000/volunteers/assign-task', {
+      const response = await fetch('http://localhost:4000/volunteers/assign-task', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ volunteer_id: volunteerId, request_id: requestId }),
       });
+
+      if (!response.ok) throw new Error('Failed to assign task');
+      
       alert('Task assigned successfully!');
-      fetchData();
+      fetchData(); // Refresh both tabs
     } catch (error) {
       console.error('Error assigning task:', error);
-      alert('Failed to assign task');
+      alert(error.message);
     }
   };
 
   const handleCompleteTask = async (taskId) => {
+    if (!window.confirm('Are you sure you want to mark this task as completed?')) return;
+    
     try {
-      await fetch('http://localhost:4000/volunteers/complete-task', {
+      const response = await fetch('http://localhost:4000/volunteers/complete-task', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ task_id: taskId }),
       });
+
+      if (!response.ok) throw new Error('Failed to complete task');
+      
       alert('Task marked as completed! Waiting for admin verification.');
-      fetchData();
+      fetchData(); // Refresh both tabs
     } catch (error) {
       console.error('Error completing task:', error);
-      alert('Failed to complete task');
+      alert(error.message);
     }
   };
 
-  const filteredResources = resources.filter((r) => {
+  // Filter resources based on search criteria
+  const filteredResources = resources.filter(r => {
     const matchesLocation = r.location.toLowerCase().includes(searchLocation.toLowerCase());
     const matchesResource = r.name.toLowerCase().includes(searchResource.toLowerCase());
-    const matchesType = selectedType === '' || r.type.toLowerCase() === selectedType.toLowerCase();
+    const matchesType = !selectedType || r.type.toLowerCase() === selectedType.toLowerCase();
     return matchesLocation && matchesResource && matchesType;
   });
 
-  const filteredRequests = activeTab === 'myTasks'
-    ? requests.filter(request => {
-        const assignedTask = assignedTasks.find(task => task.request_id === request.request_id);
-        return assignedTask !== undefined;
-      })
-    : requests;
+  // Get current requests based on active tab
+  const currentRequests = activeTab === 'allRequests' ? allRequests : myTasks;
 
   return (
     <div className="volunteer-dashboard dashboard-container">
       <h1>Volunteer Dashboard</h1>
 
-      {weatherAlerts.length > 0 && (
-        <div className="weather-alerts">
-          <h2 className="section-title">⚠️ Weather Alerts</h2>
-          <div className="alert-grid">
-            {weatherAlerts.map((alert, index) => (
-              <div key={index} className={`alert-card alert-${alert.severity}`}>
-                <h3>{alert.region}</h3>
-                <p>{alert.message}</p>
-                <span className="alert-severity">{alert.severity} alert</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
+      {/* Requests Section */}
       <div className="request-management">
         <div className="section-header">
           <h2 className="section-title">🆘 Help Requests</h2>
@@ -118,47 +122,54 @@ const VolunteerDashboard = () => {
               className={activeTab === 'myTasks' ? 'active' : ''}
               onClick={() => setActiveTab('myTasks')}
             >
-              My Tasks ({assignedTasks.length})
+              My Tasks ({myTasks.length})
             </button>
           </div>
         </div>
 
-        <div className="card-grid">
-          {filteredRequests.length === 0 ? (
-            <p className="no-requests-message">No requests found</p>
-          ) : (
-            filteredRequests.map((r) => {
-              const assignedTask = assignedTasks.find(task => task.request_id === r.request_id);
-              return (
-                <div className="card" key={r.request_id}>
-                  <div className="card-header">
-                    <span className={`status-badge status-${r.status}`}>{r.status}</span>
-                    <span className="request-time">
-                      {new Date(r.request_time).toLocaleString()}
-                    </span>
-                  </div>
-                  <p><b>Citizen:</b> {r.citizen}</p>
-                  <p><b>Location:</b> {r.location}</p>
-                  <p><b>Resource:</b> {r.resource} ({r.quantity_requested})</p>
-                  <p><b>Remarks:</b> {r.remarks}</p>
-                  <div className="card-buttons">
-                    {r.status === 'pending' && (
-                      <button onClick={() => handleAssign(r.request_id)}>Assign to Me</button>
-                    )}
-                    {assignedTask && (
-                      <button 
-                        className="complete-btn"
-                        onClick={() => handleCompleteTask(assignedTask.task_id)}
-                      >
-                        Mark as Completed
-                      </button>
-                    )}
-                  </div>
+        {isLoading ? (
+          <div className="loading-spinner">Loading...</div>
+        ) : currentRequests.length === 0 ? (
+          <p className="no-requests-message">
+            {activeTab === 'allRequests' 
+              ? 'No pending requests available' 
+              : 'You have no assigned tasks'}
+          </p>
+        ) : (
+          <div className="card-grid">
+            {currentRequests.map(request => (
+              <div className="card" key={request.request_id}>
+                <div className="card-header">
+                  <span className={`status-badge status-${request.status}`}>
+                    {request.status}
+                  </span>
+                  <span className="request-time">
+                    {new Date(request.request_time).toLocaleString()}
+                  </span>
                 </div>
-              );
-            })
-          )}
-        </div>
+                <p><b>Citizen:</b> {request.citizen}</p>
+                <p><b>Location:</b> {request.location}</p>
+                <p><b>Resource:</b> {request.resource} ({request.quantity_requested})</p>
+                <p><b>Remarks:</b> {request.remarks}</p>
+                <div className="card-buttons">
+                  {activeTab === 'allRequests' && request.status === 'pending' && (
+                    <button onClick={() => handleAssign(request.request_id)}>
+                      Assign to Me
+                    </button>
+                  )}
+                  {activeTab === 'myTasks' && (
+                    <button 
+                      className="complete-btn"
+                      onClick={() => handleCompleteTask(request.request_id)}
+                    >
+                      Mark as Completed
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="resource-management">
@@ -215,5 +226,4 @@ const VolunteerDashboard = () => {
     </div>
   );
 };
-
 export default VolunteerDashboard;

@@ -43,7 +43,7 @@ function Login() {
       localStorage.setItem("token", data.token || "dummy-token");  // Storing the token
 
       const routes = {
-        volunteer: "/volunteer",
+        volunteer: "/volunteer/",
         admin: "/admin",
         citizen: "/citizen", // Directly navigate to /citizen without user ID
       };

@@ -65,7 +65,7 @@ const RequestForm = () => {
     };
 
     try {
-      const response = await fetch('http://localhost:4000/requests', {
+      const response = await fetch('http://localhost:4000/user/requests', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
